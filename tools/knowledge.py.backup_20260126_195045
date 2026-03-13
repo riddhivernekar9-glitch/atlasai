@@ -1,0 +1,55 @@
+import json
+import re
+from pathlib import Path
+
+BASE_DIR = Path.home() / "Library" / "Application Support" / "AtlasAI" / "knowledge"
+INDEX_FILE = BASE_DIR / "index.jsonl"
+
+def _load_index():
+    if not INDEX_FILE.exists():
+        return []
+    rows = []
+    with INDEX_FILE.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+    return rows
+
+def knowledge_search(query: str, limit: int = 5) -> str:
+    query = (query or "").strip()
+    if not query:
+        return "❌ knowledge_search needs QUERY:"
+
+    rows = _load_index()
+    if not rows:
+        return "📭 Knowledge index is empty. Add files to 01_APPROVED and re-index."
+
+    # simple keyword scoring
+    terms = [t for t in re.split(r"\s+", query.lower()) if t]
+    scored = []
+    for r in rows:
+        hay = (r.get("text") or "").lower() + " " + (r.get("path") or "").lower()
+        score = sum(1 for t in terms if t in hay)
+        if score > 0:
+            scored.append((score, r))
+
+    if not scored:
+        return f"🔎 No matches for: {query}"
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[: max(1, int(limit))]
+
+    out = []
+    for score, r in top:
+        path = r.get("path", "unknown")
+        snippet = (r.get("text") or "").strip().replace("\n", " ")
+        if len(snippet) > 200:
+            snippet = snippet[:200] + "..."
+        out.append(f"• ({score}) {path}\n  {snippet if snippet else '[no text extracted]'}")
+
+    return "\n".join(out)

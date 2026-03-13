@@ -1,0 +1,221 @@
+:root{
+  --bg1:#1b1640;
+  --bg2:#17122f;
+  --panel: rgba(255,255,255,0.08);
+  --panelBorder: rgba(255,255,255,0.14);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.70);
+  --accent: rgba(70,120,255,1);
+  --accent2: rgba(70,120,255,0.85);
+  --danger: rgba(255,80,80,0.18);
+  --dangerBorder: rgba(255,80,80,0.35);
+  --ok: rgba(80,255,170,0.12);
+  --okBorder: rgba(80,255,170,0.35);
+}
+
+html, body, #root{
+  height:100%;
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--text);
+}
+
+body{
+  background: radial-gradient(1200px 600px at 20% 0%, #2b2a72 0%, transparent 60%),
+              radial-gradient(900px 500px at 80% 10%, #3a2a6e 0%, transparent 55%),
+              linear-gradient(180deg, var(--bg1), var(--bg2));
+}
+
+.container{
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 28px 18px 40px;
+}
+
+.topHeader{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom: 18px;
+}
+
+.title{
+  font-size: 64px;
+  line-height: 1;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.subtitle{
+  margin-top: 8px;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.pill{
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.panel{
+  background: var(--panel);
+  border: 1px solid var(--panelBorder);
+  border-radius: 18px;
+  padding: 18px;
+  backdrop-filter: blur(10px);
+}
+
+.panelHeader{
+  margin-bottom: 12px;
+}
+
+.panelTitle{
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: 14px;
+  color: rgba(255,255,255,0.85);
+}
+
+.panelSubtitle{
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.label{
+  display:block;
+  margin: 12px 0 6px;
+  color: rgba(255,255,255,0.82);
+  font-weight: 600;
+}
+
+.labelSmall{
+  color: rgba(255,255,255,0.78);
+  font-size: 12px;
+  margin-bottom: 6px;
+  font-weight: 650;
+}
+
+.textarea{
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.45);
+  color: var(--text);
+  padding: 12px 12px;
+  outline: none;
+}
+
+.input{
+  width: 120px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.45);
+  color: var(--text);
+  padding: 10px 10px;
+  outline: none;
+}
+
+.inputWide{
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.45);
+  color: var(--text);
+  padding: 10px 10px;
+  outline: none;
+}
+
+.row{
+  display:flex;
+  align-items:flex-end;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.field{
+  display:flex;
+  flex-direction: column;
+}
+
+.btnPrimary, .btnSecondary{
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 750;
+  border: 1px solid rgba(255,255,255,0.18);
+  cursor: pointer;
+}
+
+.btnPrimary{
+  background: var(--accent2);
+  color: white;
+  border-color: rgba(70,120,255,0.35);
+}
+
+.btnPrimary:disabled{
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary{
+  background: rgba(255,255,255,0.10);
+  color: var(--text);
+}
+
+.muted{
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+.errorBox{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--dangerBorder);
+  background: var(--danger);
+}
+
+.okBox{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--okBorder);
+  background: var(--ok);
+}
+
+.resultAnswer{
+  margin-top: 10px;
+  padding: 14px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.35);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.resultBox{
+  margin-top: 10px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.35);
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 240px;
+}
+
+.pdfMark {
+  background: rgba(255, 255, 0, 0.35); /* light yellow */
+  border-radius: 4px;
+  padding: 0 2px;
+  outline: 1px solid rgba(255, 255, 0, 0.25);
+  line-height: 1.2;
+}

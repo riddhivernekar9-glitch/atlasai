@@ -1,0 +1,107 @@
+import json
+import re
+from pathlib import Path
+from typing import List, Dict, Any
+
+APP_DIR = Path.home() / "Library" / "Application Support" / "AtlasAI"
+KNOWLEDGE_DIR = APP_DIR / "knowledge"
+INDEX_FILE = KNOWLEDGE_DIR / "index.jsonl"
+
+def _load_index() -> List[Dict[str, Any]]:
+    if not INDEX_FILE.exists():
+        return []
+    rows = []
+    for line in INDEX_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except Exception:
+            continue
+    return rows
+
+def _tokens(s: str) -> List[str]:
+    return re.findall(r"[A-Za-z0-9]+", (s or "").lower())
+
+def knowledge_search(query: str, limit: int = 5) -> str:
+    """
+    Returns a human-readable ranked list of matching files from the index.
+    """
+    rows = _load_index()
+    if not rows:
+        return "📭 Knowledge index is empty. Run: python tools/indexer.py --root <folder>"
+
+    q = _tokens(query)
+    if not q:
+        return "❌ Query was empty."
+
+    scored = []
+    for r in rows:
+        text = (r.get("text_excerpt") or "")
+        rel = (r.get("relative_path") or "")
+        hay = _tokens(rel + " " + text)
+        score = sum(1 for t in q if t in hay)
+        if score > 0:
+            scored.append((score, r))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:max(1, int(limit))]
+
+    if not top:
+        return "🔎 No matches found."
+
+    out = []
+    for i, (score, r) in enumerate(top, start=1):
+        rel = r.get("relative_path", "unknown")
+        path = r.get("path", "unknown")
+        excerpt = (r.get("text_excerpt") or "").strip()
+        # light highlight (visual only)
+        for t in q[:6]:
+            excerpt = re.sub(rf"(?i)\\b{re.escape(t)}\\b", f"«{t}»", excerpt)
+        out.append(f"• ({i}) {rel}\n  {path}\n  ↳ {excerpt[:600]}")
+    return "\n".join(out)
+
+def knowledge_answer(query: str, limit: int = 5) -> Dict[str, Any]:
+    """
+    Returns a structured answer payload:
+    { found: bool, context: str, sources: [ {relative_path, path} ] }
+    v1: simply returns the best matching excerpts as context.
+    """
+    rows = _load_index()
+    if not rows:
+        return {"found": False, "context": "", "sources": []}
+
+    q = _tokens(query)
+    if not q:
+        return {"found": False, "context": "", "sources": []}
+
+    scored = []
+    for r in rows:
+        text = (r.get("text_excerpt") or "")
+        rel = (r.get("relative_path") or "")
+        hay = _tokens(rel + " " + text)
+        score = sum(1 for t in q if t in hay)
+        if score > 0:
+            scored.append((score, r))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:max(1, int(limit))]
+
+    if not top:
+        return {"found": False, "context": "", "sources": []}
+
+    context_parts = []
+    sources = []
+    for _, r in top:
+        rel = r.get("relative_path", "unknown")
+        path = r.get("path", "unknown")
+        excerpt = (r.get("text_excerpt") or "").strip()
+        context_parts.append(f"[SOURCE: {rel}]\n{excerpt}")
+        sources.append({"relative_path": rel, "path": path})
+
+    return {
+        "found": True,
+        "context": "\n\n".join(context_parts),
+        "sources": sources,
+    }

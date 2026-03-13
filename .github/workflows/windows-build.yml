@@ -1,0 +1,71 @@
+name: Build Windows AtlasAI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install backend Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows backend executable
+        run: |
+          pyinstaller --onefile \
+            --paths . \
+            --hidden-import=server.app \
+            --hidden-import=tools.vector_index \
+            --collect-all fastapi \
+            --collect-all starlette \
+            --collect-all pydantic \
+            --collect-all uvicorn \
+            --collect-all anyio \
+            --collect-all h11 \
+            --name atlasai-backend \
+            server/run_backend.py
+
+      - name: Copy backend into Tauri sidecar location
+        run: |
+          mkdir -p client/atlasai-client/src-tauri/binaries
+          cp dist/atlasai-backend.exe client/atlasai-client/src-tauri/binaries/atlasai-backend-x86_64-pc-windows-msvc.exe
+
+      - name: Install frontend dependencies
+        run: |
+          cd client/atlasai-client
+          npm install
+
+      - name: Build Windows Tauri app
+        run: |
+          cd client/atlasai-client
+          npm run tauri build
+
+      - name: Upload Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlasai-windows-bundle
+          path: client/atlasai-client/src-tauri/target/release/bundle

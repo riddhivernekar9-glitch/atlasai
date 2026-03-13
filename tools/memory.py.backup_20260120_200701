@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]   # ~/AtlasAI_v1
+MEM_DIR = BASE_DIR / "memory"
+NOTES_FILE = MEM_DIR / "notes.md"
+HISTORY_FILE = MEM_DIR / "history.jsonl"
+
+
+def _ensure():
+    MEM_DIR.mkdir(parents=True, exist_ok=True)
+    NOTES_FILE.touch(exist_ok=True)
+    HISTORY_FILE.touch(exist_ok=True)
+
+
+def log_history(role: str, content: str) -> None:
+    _ensure()
+    record = {
+        "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "role": role,
+        "content": content,
+    }
+    with HISTORY_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def remember(text: str) -> str:
+    _ensure()
+    line = f"- {datetime.utcnow().strftime('%Y-%m-%d')} {text.strip()}\n"
+    with NOTES_FILE.open("a", encoding="utf-8") as f:
+        f.write(line)
+    return "📝 Noted."
+
+
+def recall(last_n: int = 20) -> str:
+    _ensure()
+    lines = NOTES_FILE.read_text(encoding="utf-8").splitlines()
+    lines = [ln for ln in lines if ln.strip()]
+    if not lines:
+        return "📭 No notes yet."
+    return "\n".join(lines[-last_n:])
+

@@ -1,0 +1,193 @@
+import os
+from tools.memory import log_history, remember, recall
+from dotenv import load_dotenv
+from openai import OpenAI
+from rich.console import Console
+
+from tools.filesystem import (
+    create_folder,
+    list_files,
+    find_files,
+    preview_move_matching,
+    move_matching,
+)
+
+load_dotenv()
+console = Console()
+
+SYSTEM_PROMPT = """You are AtlasAI, a local macOS assistant.
+
+When an action is needed, respond ONLY in one of these formats:
+
+ACTION: create_folder
+PATH: <path>
+
+ACTION: list_files
+PATH: <path>
+
+ACTION: find_files
+QUERY: <text>
+PATH: <path>
+
+ACTION: preview_move_matching
+QUERY: <text or *>
+SOURCE: <folder>
+EXT: .pdf   (optional)
+
+ACTION: move_matching
+QUERY: <text or *>
+SOURCE: <folder>
+DEST: <folder>
+EXT: .pdf   (optional)
+CONFIRM: YES
+
+If it is not a tool action, reply normally in plain English.
+"""
+
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key) if api_key else None
+
+
+def _get_value(lines, key: str):
+    key = key.strip().upper() + ":"
+    for ln in lines:
+        s = ln.strip()
+        if s.upper().startswith(key):
+            return s.split(":", 1)[1].strip()
+    return None
+
+
+def maybe_run_action(text: str):
+    raw_lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not raw_lines:
+        return None
+
+    first = raw_lines[0].strip()
+    if not first.upper().startswith("ACTION:"):
+        return None
+
+    action = first.split(":", 1)[1].strip().lower()
+    lines = raw_lines[1:]
+
+    if action == "create_folder":
+        path = _get_value(lines, "PATH")
+        return create_folder(path) if path else "❌ create_folder needs PATH:"
+
+    if action == "list_files":
+        path = _get_value(lines, "PATH")
+        return list_files(path) if path else "❌ list_files needs PATH:"
+
+    if action == "find_files":
+        query = _get_value(lines, "QUERY")
+        path = _get_value(lines, "PATH")
+        if not query or not path:
+            return "❌ find_files needs QUERY: and PATH:"
+        query = "" if query == "*" else query
+        return find_files(query, path)
+
+    if action == "preview_move_matching":
+        query = _get_value(lines, "QUERY") or "*"
+        source = _get_value(lines, "SOURCE")
+        ext = _get_value(lines, "EXT")
+        if not source:
+            return "❌ preview_move_matching needs SOURCE:"
+        query = "" if query == "*" else query
+        exts = [ext] if ext else None
+        return preview_move_matching(query=query, source_folder=source, extensions=exts)
+
+    if action == "move_matching":
+        query = _get_value(lines, "QUERY") or "*"
+        source = _get_value(lines, "SOURCE")
+        dest = _get_value(lines, "DEST")
+        ext = _get_value(lines, "EXT")
+        confirm = any(ln.strip().upper() == "CONFIRM: YES" for ln in lines)
+
+        if not source or not dest:
+            return "❌ move_matching needs SOURCE: and DEST:"
+        if not confirm:
+            return "⚠️ Move requested but not confirmed (needs CONFIRM: YES)."
+
+        query = "" if query == "*" else query
+        exts = [ext] if ext else None
+        return move_matching(query=query, source_folder=source, destination_folder=dest, extensions=exts)
+
+    return f"❌ Unknown ACTION: {action}"
+
+
+def chat_loop():
+    console.print("[bold green]AtlasAI is ready.[/bold green]")
+    console.print("Type 'exit' to quit.\n")
+    console.print("[dim]Tip: For ACTION blocks, paste ACTION line + fields, then press Enter on a blank line.[/dim]\n")
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    pending_action_lines = []
+
+    while True:
+        user_input = console.input("[bold cyan]You[/bold cyan]> ")
+log_history("user", user_input)
+
+
+        if user_input is None:
+            continue
+
+        # If collecting an ACTION block, keep collecting until blank line
+        if pending_action_lines:
+            if user_input.strip() == "":
+                block = "\n".join(pending_action_lines)
+                pending_action_lines = []
+                result = maybe_run_action(block)
+                if result is not None:
+                    console.print(f"[bold yellow]Action[/bold yellow]> {result}\n")
+                else:
+                    console.print("[bold red]Error[/bold red]> Could not parse ACTION block.\n")
+                continue
+            else:
+                pending_action_lines.append(user_input.rstrip("\n"))
+                continue
+
+        # Exit
+        if user_input.strip().lower() in {"exit", "quit"}:
+            console.print("\nGoodbye 👋")
+            break
+
+        # If user starts an ACTION block, start collecting
+        if user_input.strip().upper().startswith("ACTION:"):
+            pending_action_lines = [user_input.rstrip("\n")]
+            console.print("[dim]...paste the next lines (PATH/SOURCE/DEST/etc), then press Enter on a blank line to run[/dim]")
+            continue
+
+        # If user pasted a full action in one go, try running it
+        direct = maybe_run_action(user_input)
+        if direct is not None:
+            console.print(f"[bold yellow]Action[/bold yellow]> {direct}\n")
+            continue
+
+        # Normal chat mode (OpenAI)
+        if client is None:
+            console.print("[bold red]Error[/bold red]> OPENAI_API_KEY missing (set it in .env).\n")
+            continue
+
+        messages.append({"role": "user", "content": user_input.strip()})
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=messages,
+            )
+            assistant_reply = resp.choices[0].message.content.strip()
+        except Exception as e:
+            console.print(f"[bold red]Error[/bold red]> {e}\n")
+            console.print("[dim]Tip: You can still use ACTION blocks without the API.[/dim]\n")
+            continue
+log_history("assistant", assistant_reply)
+
+        messages.append({"role": "assistant", "content": assistant_reply})
+
+        result = maybe_run_action(assistant_reply)
+        if result is not None:
+            console.print(f"[bold yellow]Action[/bold yellow]> {result}\n")
+        else:
+            console.print(f"\n[bold magenta]AtlasAI[/bold magenta]> {assistant_reply}\n")
+
+
+if __name__ == "__main__":
+    chat_loop()

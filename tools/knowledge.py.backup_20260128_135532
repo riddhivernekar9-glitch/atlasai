@@ -1,0 +1,105 @@
+import json
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Tuple
+
+APP_NAME = "AtlasAI"
+
+def _app_support_dir() -> Path:
+    return Path.home() / "Library" / "Application Support" / APP_NAME
+
+def _knowledge_dir() -> Path:
+    return _app_support_dir() / "knowledge"
+
+def _index_file() -> Path:
+    return _knowledge_dir() / "index.jsonl"
+
+def _load_index() -> List[Dict[str, Any]]:
+    idx = _index_file()
+    if not idx.exists():
+        return []
+    rows: List[Dict[str, Any]] = []
+    with idx.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+    return rows
+
+def _tokenize(q: str) -> List[str]:
+    q = q.strip().lower()
+    if not q:
+        return []
+    parts = re.split(r"[^\w]+", q)
+    return [p for p in parts if p]
+
+def _score(row: Dict[str, Any], terms: List[str]) -> int:
+    hay = " ".join([
+        str(row.get("relative_path", "")),
+        str(row.get("path", "")),
+        str(row.get("text_excerpt", "")),
+    ]).lower()
+
+    score = 0
+    for t in terms:
+        score += hay.count(t)
+    return score
+
+def _make_snippet(row: Dict[str, Any], query: str, max_len: int = 180) -> str:
+    text = (row.get("text_excerpt") or "").strip()
+    if not text:
+        return ""
+
+    terms = _tokenize(query)
+    snippet = text.replace("\n", " ").strip()
+
+    # Use «term» so Rich doesn't treat it as markup (Rich eats [term])
+    for t in terms[:6]:
+        if not t:
+            continue
+        snippet = re.sub(rf"(?i)\b({re.escape(t)})\b", r"«\1»", snippet)
+
+    if len(snippet) > max_len:
+        snippet = snippet[: max_len - 1].rstrip() + "…"
+    return snippet
+
+def knowledge_search(query: str, limit: int = 5) -> str:
+    query = (query or "").strip()
+    if not query:
+        return "❌ knowledge_search needs QUERY:"
+
+    rows = _load_index()
+    if not rows:
+        return "📭 Knowledge index is empty. Add files into ~/AtlasAI_Knowledge/01_APPROVED then run: python tools/indexer.py --root ~/AtlasAI_Knowledge/01_APPROVED"
+
+    terms = _tokenize(query)
+
+    scored: List[Tuple[int, Dict[str, Any]]] = []
+    for r in rows:
+        s = _score(r, terms) if terms else 0
+        if terms and s <= 0:
+            continue
+        scored.append((s, r))
+
+    if not scored:
+        return f"🔎 No matches for '{query}'."
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[: max(1, int(limit))]
+
+    out_lines = []
+    for i, (_s, r) in enumerate(top, start=1):
+        rel = r.get("relative_path") or ""
+        path = r.get("path") or ""
+        snippet = _make_snippet(r, query)
+
+        line = f"• ({i}) {rel}\n  {path}"
+        if snippet:
+            line += f"\n  ↳ {snippet}"
+        out_lines.append(line)
+
+    return "\n".join(out_lines)

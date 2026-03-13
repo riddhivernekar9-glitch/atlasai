@@ -1,0 +1,91 @@
+import json
+import re
+from pathlib import Path
+from typing import List, Dict, Any
+
+# AtlasAI knowledge storage locations
+APP_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "AtlasAI"
+KNOWLEDGE_DIR = APP_SUPPORT_DIR / "knowledge"
+INDEX_FILE = KNOWLEDGE_DIR / "index.jsonl"
+
+def _load_index() -> List[Dict[str, Any]]:
+    if not INDEX_FILE.exists():
+        return []
+    items = []
+    with INDEX_FILE.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                items.append(json.loads(line))
+            except Exception:
+                continue
+    return items
+
+def _tokenize(q: str) -> List[str]:
+    q = (q or "").strip().lower()
+    toks = re.findall(r"[a-z0-9_]+", q)
+    return [t for t in toks if len(t) >= 2]
+
+def _score_item(tokens: List[str], item: Dict[str, Any]) -> int:
+    hay = " ".join([
+        str(item.get("relative_path","")),
+        str(item.get("path","")),
+        str(item.get("text_excerpt","")),
+    ]).lower()
+
+    score = 0
+    for t in tokens:
+        # weight tokens found in relative path higher
+        if t in str(item.get("relative_path","")).lower():
+            score += 3
+        if t in hay:
+            score += 1
+    return score
+
+def _best_matches(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    tokens = _tokenize(query)
+    items = _load_index()
+    scored = []
+    for it in items:
+        s = _score_item(tokens, it)
+        if s > 0:
+            scored.append((s, it))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [it for _, it in scored[: max(1, int(limit))]]
+
+def knowledge_search(query: str, limit: int = 5) -> str:
+    matches = _best_matches(query, limit=limit)
+    if not matches:
+        return "🔎 No matches in APPROVED knowledge."
+
+    lines = []
+    for i, it in enumerate(matches, start=1):
+        rel = it.get("relative_path") or it.get("path") or "Unknown"
+        path = it.get("path") or ""
+        excerpt = (it.get("text_excerpt") or "").strip()
+
+        # light highlighting
+        excerpt_h = excerpt
+        for t in _tokenize(query)[:6]:
+            excerpt_h = re.sub(rf"(?i)\b({re.escape(t)})\b", r"«\1»", excerpt_h)
+
+        lines.append(f"• ({i}) {rel}\n  {path}")
+        if excerpt_h:
+            lines.append(f"  ↳ {excerpt_h}")
+    return "\n".join(lines)
+
+    def _summarise_context(context: str, bullets: int = 3) -> str:
+        if not context:
+            return ""
+    """
+    Return a short bullet summary of retrieved context.
+    """
+    if not context:
+        return ""
+
+    lines = [ln.strip() for ln in context.splitlines() if ln.strip()]
+    lines = lines[: max(1, bullets)]
+
+    return "\n".join(f"- {ln}" for ln in lines)

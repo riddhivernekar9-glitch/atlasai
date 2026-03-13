@@ -1,0 +1,196 @@
+from dotenv import load_dotenv
+from openai import OpenAI
+from rich.console import Console
+
+from tools.filesystem import (
+    create_folder,
+    list_files,
+    find_files,
+    preview_move_matching,
+    move_matching,
+)
+
+from tools.memory import log_history, remember, recall
+from tools.opening import open_file
+from tools.knowledge import knowledge_search
+
+
+load_dotenv()
+console = Console()
+
+SYSTEM_PROMPT = """You are AtlasAI, a local macOS assistant.
+ACTION: knowledge_search
+QUERY: <text>
+LIMIT: 5 (optional)
+
+
+When an action is needed, respond ONLY in one of these formats:
+
+ACTION: create_folder
+PATH: <path>
+
+ACTION: list_files
+PATH: <path>
+
+ACTION: open_file
+PATH: <file path>
+
+ACTION: find_files
+QUERY: <text>
+PATH: <path>
+
+ACTION: preview_move_matching
+QUERY: <text or *>
+SOURCE: <folder>
+EXT: .pdf (optional)
+
+ACTION: move_matching
+QUERY: <text or *>
+SOURCE: <folder>
+DEST: <folder>
+EXT: .pdf (optional)
+CONFIRM: YES
+
+If it is not a tool action, reply normally in plain English.
+"""
+
+client = OpenAI()  # uses OPENAI_API_KEY from environment
+
+
+
+def _get_value(lines, key, default=None):
+    key = key.upper().strip() + ":"
+    for ln in lines:
+        if ln.upper().startswith(key):
+            return ln.split(":", 1)[1].strip()
+    return default
+
+def maybe_run_action(block: str):
+    raw_lines = [l.rstrip() for l in block.splitlines() if l.strip()]
+    if not raw_lines:
+        return None
+
+    first = raw_lines[0].strip()
+    if not first.upper().startswith("ACTION:"):
+        return None
+
+    action = first.split(":", 1)[1].strip().lower()
+    lines = raw_lines[1:]
+
+    if action == "knowledge_search":
+        query = _get_value(lines, "QUERY")
+        limit = int(_get_value(lines, "LIMIT", "5"))
+        return knowledge_search(query, limit)
+
+    return None
+def maybe_run_action(block: str):
+    raw_lines = [l.rstrip() for l in block.splitlines() if l.strip()]
+    if not raw_lines:
+        return None
+
+    first = raw_lines[0].strip()
+    if not first.upper().startswith("ACTION:"):
+        return None
+
+    action = first.split(":", 1)[1].strip().lower()
+    lines = raw_lines[1:]
+
+    if action == "knowledge_search":
+        query = _get_value(lines, "QUERY")
+        limit = int(_get_value(lines, "LIMIT", "5"))
+        return knowledge_search(query, limit)
+
+    return None
+def chat_loop():
+    console.print("[bold green]AtlasAI is ready.[/bold green]")
+    console.print("Type 'exit' to quit.\n")
+    console.print("[dim]Tip: For ACTION blocks, paste ACTION line + fields, then press Enter on a blank line.[/dim]\n")
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    pending_action_lines = []
+
+    while True:
+        user_input = console.input("[bold cyan]You[/bold cyan]> ").rstrip("\n")
+
+        # If we are collecting an ACTION block, keep collecting until blank line
+        if pending_action_lines:
+            if user_input.strip() == "":
+                block = "\n".join(pending_action_lines)
+                pending_action_lines = []
+
+                result = maybe_run_action(block)
+                if result is not None:
+                    console.print(f"[bold yellow]Action[/bold yellow]> {result}\n")
+                    log_history("assistant", str(result))
+                else:
+                    console.print("[bold red]Error[/bold red]> Could not parse ACTION block.\n")
+                continue
+            else:
+                pending_action_lines.append(user_input)
+                continue
+
+        # Exit
+        if user_input.strip().lower() in ("exit", "quit"):
+            console.print("\nGoodbye 👋")
+            break
+
+        # Log user input (once)
+        log_history("user", user_input)
+
+        if not user_input.strip():
+            continue
+
+        # Memory commands (work even without API)
+        if user_input.startswith("/remember "):
+            text = user_input[len("/remember "):].strip()
+            out = remember(text)
+            console.print(f"[bold yellow]Action[/bold yellow]> {out}\n")
+            log_history("assistant", out)
+            continue
+
+        if user_input.strip() == "/recall":
+            out = recall()
+            console.print(f"[bold yellow]Action[/bold yellow]> {out}\n")
+            log_history("assistant", out)
+            continue
+
+        # If user starts an ACTION block, start collecting
+        if user_input.strip().upper().startswith("ACTION:"):
+            pending_action_lines = [user_input.strip()]
+            console.print("[dim]...paste the next lines (PATH/SOURCE/DEST/etc), then press Enter on a blank line to run[/dim]")
+            continue
+
+        # If user pasted a full action in one go, try running it
+        direct = maybe_run_action(user_input)
+        if direct is not None:
+            console.print(f"[bold yellow]Action[/bold yellow]> {direct}\n")
+            log_history("assistant", str(direct))
+            continue
+
+        # Normal chat mode (OpenAI)
+        messages.append({"role": "user", "content": user_input})
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=messages,
+            )
+            assistant_reply = resp.choices[0].message.content.strip()
+        except Exception as e:
+            console.print(f"[bold red]Error[/bold red]> {e}\n")
+            console.print("[dim]Tip: You can still use ACTION blocks without the API.[/dim]\n")
+            continue
+
+        messages.append({"role": "assistant", "content": assistant_reply})
+        log_history("assistant", assistant_reply)
+
+        # If assistant returned an ACTION block, execute it
+        result = maybe_run_action(assistant_reply)
+        if result is not None:
+            console.print(f"[bold yellow]Action[/bold yellow]> {result}\n")
+            log_history("assistant", str(result))
+        else:
+            console.print(f"\n[bold magenta]AtlasAI[/bold magenta]> {assistant_reply}\n")
+
+
+if __name__ == "__main__":
+    chat_loop()
