@@ -129,6 +129,38 @@ def _normalize_query(query: str) -> List[str]:
     return words
 
 
+def classify_document(path: str, text: str) -> str:
+    combined = f"{path}\n{text}".lower()
+
+    # Strong signal rules (priority overrides)
+    if any(x in combined for x in [
+        "sponsor", "sponsorship", "employment visa", "residence permit", "work permit"
+    ]):
+        return "Visa"
+
+    if any(x in combined for x in [
+        "salary", "payroll", "wage", "compensation", "allowance"
+    ]):
+        return "Payroll"
+
+    if any(x in combined for x in [
+        "contract", "agreement", "terms and conditions", "probation", "termination"
+    ]):
+        return "Contract"
+
+    if any(x in combined for x in [
+        "insurance", "medical insurance", "coverage", "insured"
+    ]):
+        return "Insurance"
+
+    if any(x in combined for x in [
+        "law", "regulation", "compliance", "policy", "obligation"
+    ]):
+        return "Compliance"
+
+    return "General"
+
+
 def ingest_folder(folder_path: str, *args, **kwargs) -> Dict[str, Any]:
     files = _iter_indexable_files(folder_path)
 
@@ -145,6 +177,8 @@ def ingest_folder(folder_path: str, *args, **kwargs) -> Dict[str, Any]:
         if not content.strip():
             content = f"Document file: {p.name}"
 
+        doc_type = classify_document(str(p), content)
+
         chunks = _chunk_text(content)
         if not chunks:
             chunks = [f"Document file: {p.name}"]
@@ -156,6 +190,7 @@ def ingest_folder(folder_path: str, *args, **kwargs) -> Dict[str, Any]:
                     "path": str(p),
                     "context": chunk,
                     "score": 0.0,
+                    "doc_type": doc_type,
                     "id": _hash_text(str(p) + "::" + chunk),
                 }
             )
@@ -200,22 +235,23 @@ def search_index(query: str, limit: int = 3, *args, **kwargs) -> List[Dict[str, 
         ctx = (item.get("context") or "").lower()
         rel = (item.get("relative_path") or "").lower()
         path = (item.get("path") or "").lower()
+        doc_type = (item.get("doc_type") or "").lower()
 
         score = 0.0
 
-        # exact full-query bonus
         if raw_query in ctx:
             score += 10.0
         if raw_query in rel or raw_query in path:
             score += 6.0
+        if raw_query == doc_type:
+            score += 8.0
 
-        # keyword scoring
         for kw in keywords:
             score += ctx.count(kw) * 2.0
             score += rel.count(kw) * 3.0
             score += path.count(kw) * 1.0
+            score += doc_type.count(kw) * 2.0
 
-        # require at least one keyword hit
         if score > 0:
             out = dict(item)
             out["score"] = score

@@ -1,7 +1,5 @@
 import { useState } from "react";
 import type { IngestResponse } from "../api";
-
-// Tauri dialog (works in tauri dev/build)
 import { open } from "@tauri-apps/plugin-dialog";
 
 export default function IngestPanel({
@@ -15,12 +13,8 @@ export default function IngestPanel({
   result: IngestResponse | null;
   onIngest: (path: string) => void;
 }) {
-  const [path, setPath] = useState("/Users/riddhi/Documents/AtlasAI_Knowledge");
+  const [path, setPath] = useState("");
 
-  // IMPORTANT:
-  // - Do NOT .trim() paths returned by the OS dialog.
-  //   Some folders can (unfortunately) have trailing spaces in their names.
-  // - Only remove accidental newlines.
   function normalizePath(p: string) {
     return p.replace(/\r?\n/g, "");
   }
@@ -59,13 +53,14 @@ export default function IngestPanel({
         className="inputWide"
         value={path}
         onChange={(e) => setPath(e.target.value)}
-        placeholder="/Users/riddhi/Documents/AtlasAI_Knowledge"
+        placeholder="Choose a folder or file..."
       />
 
-      <div className="row" style={{ marginTop: 14 }}>
+      <div className="row" style={{ marginTop: 14, flexWrap: "wrap", gap: 12 }}>
         <button className="btnSecondary" onClick={chooseFolder} disabled={ingesting}>
           Choose Folder…
         </button>
+
         <button className="btnSecondary" onClick={chooseFile} disabled={ingesting}>
           Choose File…
         </button>

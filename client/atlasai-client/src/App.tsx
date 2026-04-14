@@ -80,7 +80,7 @@ export default function App() {
           placeholder="Ask a question..."
         />
 
-        <div className="row">
+        <div className="row" style={{ flexWrap: "wrap", gap: 12, alignItems: "end" }}>
           <div className="field">
             <div className="labelSmall">Limit</div>
             <input
@@ -99,11 +99,14 @@ export default function App() {
         </div>
       </section>
 
-      {/* ✅ Single Result panel */}
       <ResultPanel error={error} data={data} loading={loading} />
 
-      {/* ✅ Ingest panel */}
-      <IngestPanel ingesting={ingesting} status={ingestStatus} result={ingestResult} onIngest={runIngest} />
+      <IngestPanel
+        ingesting={ingesting}
+        status={ingestStatus}
+        result={ingestResult}
+        onIngest={runIngest}
+      />
     </main>
   );
 }

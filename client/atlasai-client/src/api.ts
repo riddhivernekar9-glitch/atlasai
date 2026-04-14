@@ -3,11 +3,14 @@ export type SourceChunk = {
   path: string;
   score: number;
   context: string;
+  doc_type?: string;
 };
 
 export type AnswerResponse = {
   answer: string;
   sources: SourceChunk[];
+  structured?: Record<string, string>;
+  confidence?: Record<string, string>;
   raw?: any;
 };
 
@@ -27,17 +30,27 @@ export type IngestResponse = {
 const BASE = "http://127.0.0.1:8000";
 
 async function postJSON<T>(url: string, body: any): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+
+    return res.json();
+  } catch (err: any) {
+    if (err?.message?.includes("Failed to fetch")) {
+      throw new Error(
+        "Failed to fetch. The AtlasAI backend may not be running or reachable on this machine."
+      );
+    }
+    throw err;
   }
-  return res.json();
 }
 
 export async function apiIngest(path: string): Promise<IngestResponse> {
