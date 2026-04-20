@@ -174,7 +174,7 @@ export default function ResultPanel({
                         fontWeight: 700,
                       }}
                     >
-                      {bestSource.docType}
+                      {bestSource.docType || "General"}
                     </span>
 
                     <span style={{ opacity: 0.8, fontWeight: 600 }}>
