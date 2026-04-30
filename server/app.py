@@ -1,6 +1,31 @@
 import os
 import mimetypes
 import re
+from pathlib import Path
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+
+class IngestRequest(BaseModel):
+    path: str
+
+
+def normalize_input_path(raw_path: str) -> Path:
+    if not raw_path or not raw_path.strip():
+        raise HTTPException(status_code=400, detail="No path provided")
+
+    cleaned = raw_path.strip().strip('"').replace("\r", "").replace("\n", "")
+    path = Path(cleaned).expanduser()
+
+    try:
+        path = path.resolve(strict=True)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path does not exist or is not accessible: {cleaned}"
+        )
+
+    return path
 from collections import OrderedDict
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware

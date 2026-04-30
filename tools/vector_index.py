@@ -95,10 +95,12 @@ def _read_pdf_file(p: Path) -> str:
         return ""
 
 
-def _read_file(p: Path) -> str:
-    if p.suffix.lower() == ".pdf":
-        return _read_pdf_file(p)
-    return _read_text_file(p)
+def _read_pdf_file(p: Path) -> str:
+    try:
+        from server.utils.pdf_reader import read_pdf_text
+        return read_pdf_text(p)
+    except Exception:
+        return ""
 
 
 def _chunk_text(text: str) -> List[str]:

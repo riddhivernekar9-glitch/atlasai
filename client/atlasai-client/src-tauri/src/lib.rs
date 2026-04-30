@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
+#[allow(dead_code)]
 struct BackendState(Mutex<Option<CommandChild>>);
 
 pub fn run() {
