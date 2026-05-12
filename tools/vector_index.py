@@ -38,6 +38,21 @@ STOPWORDS = {
 }
 
 
+def normalize_input_path(raw_path: str) -> Path:
+    if not raw_path or not raw_path.strip():
+        raise ValueError("No path provided")
+
+    cleaned = raw_path.strip().strip('"').replace("\r", "").replace("\n", "")
+    path = Path(cleaned).expanduser()
+
+    try:
+        path = path.resolve(strict=True)
+    except FileNotFoundError:
+        raise ValueError(f"Path does not exist or is not accessible: {cleaned}")
+
+    return path
+
+
 def _should_index_file(p: Path) -> bool:
     if not p.exists() or not p.is_file():
         return False
@@ -52,11 +67,8 @@ def _should_index_file(p: Path) -> bool:
 
 
 def _iter_indexable_files(path_or_folder: str) -> List[Path]:
-    raw = (path_or_folder or "").replace("\r", "").replace("\n", "")
-    base = Path(raw).expanduser()
-
     try:
-        base = base.resolve()
+        base = normalize_input_path(path_or_folder)
     except Exception:
         return []
 
@@ -83,24 +95,16 @@ def _read_text_file(p: Path) -> str:
 
 def _read_pdf_file(p: Path) -> str:
     try:
-        from pypdf import PdfReader
-        reader = PdfReader(str(p))
-        text_parts: List[str] = []
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                text_parts.append(t)
-        return "\n".join(text_parts)
-    except Exception:
-        return ""
-
-
-def _read_pdf_file(p: Path) -> str:
-    try:
         from server.utils.pdf_reader import read_pdf_text
         return read_pdf_text(p)
     except Exception:
         return ""
+
+
+def _read_file(p: Path) -> str:
+    if p.suffix.lower() == ".pdf":
+        return _read_pdf_file(p)
+    return _read_text_file(p)
 
 
 def _chunk_text(text: str) -> List[str]:
@@ -134,7 +138,6 @@ def _normalize_query(query: str) -> List[str]:
 def classify_document(path: str, text: str) -> str:
     combined = f"{path}\n{text}".lower()
 
-    # Strong signal rules (priority overrides)
     if any(x in combined for x in [
         "sponsor", "sponsorship", "employment visa", "residence permit", "work permit"
     ]):
@@ -172,6 +175,7 @@ def ingest_folder(folder_path: str, *args, **kwargs) -> Dict[str, Any]:
     index_data: List[Dict[str, Any]] = []
     total_chunks = 0
     files_seen = 0
+
 
     for p in files:
         content = _read_file(p)
