@@ -1,32 +1,9 @@
-import os
 import mimetypes
+import os
 import re
-from pathlib import Path
-from fastapi import HTTPException
-from pydantic import BaseModel
-
-
-class IngestRequest(BaseModel):
-    path: str
-
-
-def normalize_input_path(raw_path: str) -> Path:
-    if not raw_path or not raw_path.strip():
-        raise HTTPException(status_code=400, detail="No path provided")
-
-    cleaned = raw_path.strip().strip('"').replace("\r", "").replace("\n", "")
-    path = Path(cleaned).expanduser()
-
-    try:
-        path = path.resolve(strict=True)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Path does not exist or is not accessible: {cleaned}"
-        )
-
-    return path
 from collections import OrderedDict
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -34,7 +11,13 @@ from pydantic import BaseModel
 
 from tools.vector_index import ingest_folder, search_index
 
-app = FastAPI()
+load_dotenv()  # Load OPENAI_API_KEY (and any other vars) from .env
+
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="AtlasAI Backend", version="0.1.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,8 +27,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ALLOWED_ROOT = os.path.abspath(os.path.expanduser("~/Documents"))
+# Files served via /api/file must live under the user's home directory.
+ALLOWED_ROOT = os.path.abspath(os.path.expanduser("~"))
 
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
 
 class IngestBody(BaseModel):
     path: str
@@ -55,6 +43,10 @@ class QueryBody(BaseModel):
     query: str
     limit: int = 3
 
+
+# ---------------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------------
 
 def extract_best_snippet(text: str, query: str, max_len: int = 280) -> str:
     raw = (text or "").strip().replace("\n", " ")
@@ -95,7 +87,7 @@ def _clean_value(value: str) -> str:
     return value
 
 
-def _find_first(patterns, text: str) -> str | None:
+def _find_first(patterns: list[str], text: str) -> str | None:
     for pat in patterns:
         m = re.search(pat, text, flags=re.IGNORECASE)
         if m:
@@ -104,6 +96,10 @@ def _find_first(patterns, text: str) -> str | None:
             return _clean_value(m.group(0))
     return None
 
+
+# ---------------------------------------------------------------------------
+# Field extractors (keyword / regex)
+# ---------------------------------------------------------------------------
 
 def extract_sponsor(text: str) -> str | None:
     patterns = [
@@ -114,10 +110,8 @@ def extract_sponsor(text: str) -> str | None:
     value = _find_first(patterns, text)
     if value:
         return value
-
     if "nathan & nathan" in text.lower():
         return "Nathan & Nathan (Dynamic Employment Services L.L.C.)"
-
     return None
 
 
@@ -151,8 +145,7 @@ def extract_insurance(text: str) -> str | None:
 
 def wanted_fields(query: str) -> list[str]:
     q = (query or "").lower()
-    fields = []
-
+    fields: list[str] = []
     if "sponsor" in q:
         fields.append("Sponsor")
     if "salary" in q or "pay" in q or "monthly salary" in q:
@@ -161,7 +154,6 @@ def wanted_fields(query: str) -> list[str]:
         fields.append("Visa Type")
     if "insurance" in q or "medical" in q:
         fields.append("Insurance")
-
     return fields
 
 
@@ -173,13 +165,15 @@ def confidence_label(score: float) -> str:
     return "Low"
 
 
-def build_structured_answer(query: str, results: list[dict]) -> tuple[OrderedDict, dict]:
+def build_structured_answer(
+    query: str, results: list[dict]
+) -> tuple[OrderedDict, dict]:
     wanted = wanted_fields(query)
     if not wanted:
         return OrderedDict(), {}
 
-    structured = OrderedDict()
-    confidence = {}
+    structured: OrderedDict = OrderedDict()
+    confidence: dict = {}
 
     for field in wanted:
         best_value = None
@@ -217,6 +211,58 @@ def structured_to_text(structured: OrderedDict) -> str:
     return "\n".join(f"{k}: {v}" for k, v in structured.items())
 
 
+# ---------------------------------------------------------------------------
+# LLM answer helper
+# ---------------------------------------------------------------------------
+
+def _llm_answer(query: str, context_chunks: list[dict]) -> str:
+    """
+    Build a prompt from the top-3 retrieved chunks and call gpt-4o-mini.
+
+    Returns the model's answer string, or an empty string when the API key
+    is absent or the call fails (caller falls back to regex extraction).
+    """
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return ""
+
+    context_text = "\n\n---\n\n".join(
+        f"[Source: {r.get('relative_path', 'unknown')}]\n{r.get('context', '')}"
+        for r in context_chunks[:3]
+    )
+
+    system_prompt = (
+        "You are an HR document assistant. "
+        "Answer the user's question using only the provided document excerpts. "
+        "Be concise and factual. "
+        "If the answer is not in the excerpts, say so."
+    )
+    user_prompt = f"Document excerpts:\n{context_text}\n\nQuestion: {query}"
+
+    from openai import OpenAI  # lazy import keeps startup fast
+    openai_client = OpenAI(api_key=api_key)
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=500,
+        temperature=0,
+    )
+    return response.choices[0].message.content.strip()
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health():
+    """Liveness probe used by the Tauri sidecar startup check."""
+    return {"status": "ok", "version": "0.1.1"}
+
+
 @app.post("/api/ingest")
 def api_ingest(body: IngestBody):
     p = (body.path or "").replace("\r", "").replace("\n", "")
@@ -245,11 +291,22 @@ def api_answer(body: QueryBody):
 
     structured, confidence = build_structured_answer(body.query, results)
 
-    if structured:
-        answer_text = structured_to_text(structured)
-    else:
-        best = results[0]
-        answer_text = extract_best_snippet(best.get("context", ""), body.query) or "Found a matching document."
+    # Primary: ask gpt-4o-mini with top-3 chunks as grounded context
+    try:
+        answer_text = _llm_answer(body.query, results[:3])
+    except Exception:
+        answer_text = ""
+
+    # Fallback when key is missing or LLM call failed
+    if not answer_text:
+        if structured:
+            answer_text = structured_to_text(structured)
+        else:
+            best = results[0]
+            answer_text = (
+                extract_best_snippet(best.get("context", ""), body.query)
+                or "Found a matching document."
+            )
 
     return {
         "answer": answer_text,
@@ -261,7 +318,10 @@ def api_answer(body: QueryBody):
 
 @app.get("/api/file")
 def api_file(path: str = Query(...)):
-    full_path = os.path.abspath(os.path.expanduser(path.replace("\r", "").replace("\n", "")))
+    """Serve a local file for in-app preview. Restricted to the user's home dir."""
+    full_path = os.path.abspath(
+        os.path.expanduser(path.replace("\r", "").replace("\n", ""))
+    )
 
     if not full_path.startswith(ALLOWED_ROOT):
         raise HTTPException(status_code=403, detail="Access denied")
